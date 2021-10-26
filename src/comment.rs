@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
@@ -38,14 +39,6 @@ struct Comment {
     pub parent: Option<i32>,
     pub text: String,
     pub email: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-/// A tree of comments.
-/// It is guantreed NOT to have circular references.
-struct CommentNode<'a> {
-    comment: Comment,
-    children: Vec<&'a CommentNode<'a>>,
 }
 
 impl Comment {
@@ -79,35 +72,6 @@ impl Comment {
             .set(text.eq(new_text))
             .get_result::<Comment>(&conn)?;
         Ok(updated)
-    }
-
-    /// Convert a list of comments to a tree.
-    /// Returns a Vec<CommentNode> since there can be multiple top-level comments.
-    fn vec_to_tree<'a>(comments: Vec<Comment>) -> Vec<CommentNode<'a>> {
-        let mut id_to_node = HashMap::new();
-
-        for comment in comments {
-            id_to_node.insert(
-                comment.id,
-                CommentNode {
-                    comment,
-                    children: vec![],
-                },
-            );
-        }
-
-        for (_, node) in id_to_node.drain() {
-            if let Some(parent) = node.comment.parent {
-                // We just inserted all the comments,
-                // so get will work for the same comments. unwrap() directly.
-                let parent_node = id_to_node.get_mut(&parent).unwrap();
-
-                parent_node.children.push(node);
-            } else {
-            }
-        }
-
-        return vec![];
     }
 }
 
