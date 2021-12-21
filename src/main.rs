@@ -2,7 +2,7 @@ mod db;
 mod resources;
 
 use crate::db::init_pool;
-use crate::resources::Comment;
+use crate::resources::comment_conf;
 // use crate::resources::{Comment, Reaction};
 use actix_cors::Cors;
 use actix_ratelimit::MemoryStore;
@@ -23,7 +23,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(Cors::permissive())
             .wrap(NormalizePath::new(TrailingSlash::Trim))
-            .configure(Comment::configure)
+            .configure(comment_conf)
         // .configure(Reaction::configure)
     })
     .bind("127.0.0.1:8080")?

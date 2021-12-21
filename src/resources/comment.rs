@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use actix_web::dev::HttpServiceFactory;
-use actix_web::{get, post, web, Error, HttpResponse, HttpResponseBuilder, Responder, Scope};
+use actix_web::error::ErrorInternalServerError;
+use actix_web::{get, post, web, Error, HttpResponse, Responder, Scope};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, log_enabled, Level};
@@ -39,6 +40,8 @@ struct NewComment {
     pub parent: Option<i32>,
 }
 
+type JsonCommentTree = Vec<Arc<JsonComment>>;
+
 /// A comment that has references to its children directly. Useful
 /// for being easy to consume for the frontend
 #[derive(Debug, Serialize)]
@@ -52,8 +55,6 @@ struct JsonComment {
     /// Children of this comment
     pub children: Mutex<JsonCommentTree>,
 }
-
-type JsonCommentTree = Vec<Arc<JsonComment>>;
 
 impl JsonComment {
     fn new(comment: Comment) -> JsonComment {
@@ -111,13 +112,24 @@ impl JsonComment {
 }
 
 impl Comment {
-    //     fn new(pool: &PgPool, new_comment: NewComment) -> Result<Self> {
-    //         let conn = pool.get()?;
-    //         let new = diesel::insert_into(comments::table)
-    //             .values(&new_comment)
-    //             .get_result(&conn)?;
-    //         Ok(new)
-    //     }
+    async fn new(pool: &PgPool, new_comment: NewComment) -> Result<Self> {
+        let res = sqlx::query_as!(
+            Comment,
+            "
+            insert into comments (slug, name, text, email, parent)
+            values ($1, $2, $3, $4, $5)
+            returning *
+            ",
+            new_comment.slug,
+            new_comment.name,
+            new_comment.text,
+            new_comment.email,
+            new_comment.parent,
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(res)
+    }
 
     async fn fetch_all(pool: &PgPool) -> Result<Vec<Comment>> {
         let res = sqlx::query_as!(Comment, "select * from comments")
@@ -148,68 +160,64 @@ impl Comment {
 #[get("/{slug}")]
 async fn get_comments_by_slug(
     pool: web::Data<PgPool>, /*slug: web::Path<String>*/
-) -> HttpResponse {
-    Comment::fetch_all(&pool).await.map_or_else(
-        |e| HttpResponse::InternalServerError().body(e.to_string()),
-        |res| {
-            debug!("{:?}", res);
-            HttpResponse::Ok().json(res)
-        },
-    )
+) -> impl Responder {
+    Comment::fetch_all(&pool)
+        .await
+        .map(|comment| HttpResponse::Ok().json(comment))
+        .map_err(|_| HttpResponse::InternalServerError().finish())
 }
-//
-// /// A request to create a comment.
-// #[derive(Debug, Deserialize)]
-// struct CommentReq {
-//     pub name: String,
-//     pub text: String,
-//     pub email: String,
-//     pub parent: Option<i32>,
-// }
-//
-// #[post("/{slug}")]
-// async fn post_comment(
-//     pool: web::Data<Pool>,
-//     web::Path(slug): web::Path<String>,
-//     web::Json(comment_req): web::Json<CommentReq>,
-// ) -> impl Responder {
-//     let comment = NewComment {
-//         slug,
-//         name: comment_req.name,
-//         text: comment_req.text,
-//         email: comment_req.email,
-//         parent: comment_req.parent,
-//     };
-//
-//     comment.validate().map_err(|e| {
-//         HttpResponse::BadRequest().body(format!(
-//             "{:?}",
-//             e.into_errors().into_values().collect::<Vec<_>>()
-//         ))
-//     })?;
-//
-//     web::block(move || Comment::new(&pool, comment))
-//         .await
-//         .map(|comments| HttpResponse::Ok().json(comments))
-//         .map_err(|_| HttpResponse::InternalServerError())
-// }
 
-impl Comment {
-    pub fn configure(cfg: &mut web::ServiceConfig) {
-        let store = MemoryStore::new();
+/// A request to create a comment.
+#[derive(Debug, Deserialize)]
+struct CommentReq {
+    pub name: String,
+    pub text: String,
+    pub email: String,
+    pub parent: Option<i32>,
+}
 
-        cfg.service(
-            web::scope("comments")
-                .service(get_comments_by_slug)
-            // .service(
-            //     web::scope("")
-            //         .wrap(
-            //             RateLimiter::new(MemoryStoreActor::from(store.clone()).start())
-            //                 .with_interval(Duration::from_secs(120))
-            //                 .with_max_requests(5),
-            //         )
-            //         .service(post_comment),
-            // ),
-        );
-    }
+#[post("/{slug}")]
+async fn post_comment(
+    pool: web::Data<PgPool>,
+    slug: web::Path<String>,
+    web::Json(comment_req): web::Json<CommentReq>,
+) -> impl Responder {
+    let comment = NewComment {
+        slug: slug.into_inner(),
+        name: comment_req.name,
+        text: comment_req.text,
+        email: comment_req.email,
+        parent: comment_req.parent,
+    };
+
+    comment.validate().map_err(|e| {
+        HttpResponse::BadRequest().body(format!(
+            "{:?}",
+            e.into_errors().into_values().collect::<Vec<_>>()
+        ))
+    })?;
+
+    Comment::new(&pool, comment)
+        .await
+        .map(|comment| HttpResponse::Ok().json(comment))
+        .map_err(|_| HttpResponse::InternalServerError().finish())
+}
+
+/// Actix configuration for comments.
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    let store = MemoryStore::new();
+
+    cfg.service(
+        web::scope("comments")
+            .service(get_comments_by_slug)
+        // .service(
+        //     web::scope("")
+        //         .wrap(
+        //             RateLimiter::new(MemoryStoreActor::from(store.clone()).start())
+        //                 .with_interval(Duration::from_secs(120))
+        //                 .with_max_requests(5),
+        //         )
+        //         .service(post_comment),
+        // ),
+    );
 }

@@ -7,12 +7,15 @@ edition = "2021"
 
 [dependencies]
 # Main deps
-actix-web = "^4.0.0-beta" # web server
-sqlx = { version = "0.5", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
+actix-web = "=4.0.0-beta.5" # web server
+# pinned to beta.5 because of actix error bug, see https://github.com/actix/actix-web/issues/2173
+sqlx = { version = "0.5", features = ["runtime-tokio-rustls", "postgres", "chrono"] } # sql queries
 serde = { version = "^1", features = ["rc"] } # serialization to json
 
 # Minor deps
-actix-http = "^3.0.0-beta" # http for actix
+actix-http = "^3.0.0-beta" # need to resolve dep manually with actix 4 beta 5
+actix-service = "=2.0.0-beta.5"
+actix-web-httpauth = "=0.6.0-beta.1"
 actix-cors = "^0.6.0-beta" # CORS (for dev)
 actix-ratelimit = "0.3.1" # rate limiting
 anyhow = "^1" # simpler error type
