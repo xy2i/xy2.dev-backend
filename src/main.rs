@@ -1,26 +1,30 @@
-mod comment;
 mod db;
-mod schema;
+mod resources;
 
-#[macro_use]
-extern crate diesel;
-
-use crate::comment::{get_all_comments, get_comments_by_slug, post_comment};
 use crate::db::init_pool;
+use crate::resources::{comment_conf, reaction_conf};
+// use crate::resources::{Comment, Reaction};
 use actix_cors::Cors;
-use actix_web::{get, http, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::middleware::{Logger, NormalizePath, TrailingSlash};
+use actix_web::{web, App, HttpServer};
+use env_logger::Env;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let pool = init_pool().expect("Could not create pool");
+    dotenv::dotenv().ok();
+    env_logger::init();
+
+    let pool = init_pool().await.expect("Could not create pool");
 
     HttpServer::new(move || {
         App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap(Logger::default())
             .wrap(Cors::permissive())
-            .data(pool.clone())
-            .service(get_all_comments)
-            .service(get_comments_by_slug)
-            .service(post_comment)
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
+            .configure(comment_conf)
+            .configure(reaction_conf)
+        // .configure(Reaction::configure)
     })
     .bind("127.0.0.1:8080")?
     .run()

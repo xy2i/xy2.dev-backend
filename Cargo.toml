@@ -7,14 +7,21 @@ edition = "2021"
 
 [dependencies]
 # Main deps
-actix-web = "3"
-diesel = { version = "1.4.4", features = ["postgres", "chrono", "r2d2"] }
-serde = { version = "^1", features = ["rc"] }
+actix-web = "=4.0.0-beta.5" # web server
+# pinned to beta.5 because of actix error bug, see https://github.com/actix/actix-web/issues/2173
+sqlx = { version = "0.5", features = ["runtime-tokio-rustls", "postgres", "chrono"] } # sql queries
+serde = { version = "^1", features = ["rc"] } # serialization to json
 
 # Minor deps
-actix-cors = "0.5.4"
-dotenv = "0.15.0"
-anyhow = "^1"
-chrono = { version = "0.4", features = ["serde"] }
-validator = { version = "0.12", features = ["derive"] }
-serde_json = "^1"
+actix-http = "^3.0.0-beta" # need to resolve dep manually with actix 4 beta 5
+actix-service = "=2.0.0-beta.5"
+actix-web-httpauth = "=0.6.0-beta.1"
+actix-cors = "^0.6.0-beta" # CORS (for dev)
+actix-ratelimit = "0.3.1" # rate limiting
+anyhow = "^1" # simpler error type
+chrono = { version = "0.4", features = ["serde"] } # for DateTime type
+dotenv = "0.15.0" # load secrets
+env_logger = "0.9.0" # log
+log = "0.4.14" # logger facade
+serde_json = "^1" # serde: handling json
+validator = { version = "0.12", features = ["derive"] } # validate requests
