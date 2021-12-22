@@ -1,22 +1,17 @@
-use actix_ratelimit::{MemoryStore, MemoryStoreActor, RateLimiter};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use actix_web::dev::HttpServiceFactory;
-use actix_web::error::ErrorInternalServerError;
-use actix_web::{get, post, web, Error, HttpResponse, Responder, Scope};
-use anyhow::Result;
+use actix_web::{get, post, web, HttpResponse, Responder};
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info, log_enabled, Level};
+use log::error;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
 use sqlx::PgPool;
 use validator::Validate;
 
 /// A comment as represented in the database.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Comment {
+struct Comment {
     pub id: i32,
     pub slug: String,
     pub name: String,
@@ -36,7 +31,7 @@ struct NewComment {
     pub name: String,
     #[validate(length(min = 10, max = 10_000))]
     pub text: String,
-    pub email: String,
+    pub email: Option<String>,
     pub parent: Option<i32>,
 }
 
@@ -47,7 +42,6 @@ type JsonCommentTree = Vec<Arc<JsonComment>>;
 #[derive(Debug, Serialize)]
 struct JsonComment {
     pub id: i32,
-    pub slug: String,
     pub name: String,
     pub date: DateTime<Utc>,
     pub text: String,
@@ -60,7 +54,6 @@ impl JsonComment {
     fn new(comment: Comment) -> JsonComment {
         JsonComment {
             id: comment.id,
-            slug: comment.slug,
             name: comment.name,
             date: comment.date,
             text: comment.text,
@@ -101,13 +94,10 @@ impl JsonComment {
         }
 
         // Collect the tree roots.
-        let mut tree = vec![];
-        for root_id in root_nodes_ids {
-            let root = id_to_node.remove(&root_id).unwrap();
-            tree.push(root);
-        }
-
-        tree
+        root_nodes_ids
+            .into_iter()
+            .map(|root_id| id_to_node.remove(&root_id).unwrap())
+            .collect()
     }
 }
 
@@ -115,11 +105,11 @@ impl Comment {
     async fn new(pool: &PgPool, new_comment: NewComment) -> Result<Self> {
         let res = sqlx::query_as!(
             Comment,
-            "
+            r#"
             insert into comments (slug, name, text, email, parent)
             values ($1, $2, $3, $4, $5)
             returning *
-            ",
+            "#,
             new_comment.slug,
             new_comment.name,
             new_comment.text,
@@ -127,7 +117,11 @@ impl Comment {
             new_comment.parent,
         )
         .fetch_one(pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            error!("{}", e);
+            e
+        })?;
         Ok(res)
     }
 
@@ -138,30 +132,39 @@ impl Comment {
         Ok(res)
     }
 
-    // fn fetch_slug(pool: &Pool, slug: &str) -> Result<JsonCommentTree> {
-    //     let conn = pool.get()?;
-    //     let comments: Vec<Self> = comments::table
-    //         .filter(comments::slug.eq(slug))
-    //         .load(&conn)?;
-    //     Ok(JsonComment::make_tree(comments))
-    // }
+    async fn fetch_slug(pool: &PgPool, slug: &str) -> Result<JsonCommentTree> {
+        let res = sqlx::query_as!(
+            Comment,
+            r#"
+            select * from comments
+            where slug = $1
+            "#,
+            slug
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(JsonComment::make_tree(res))
+    }
     //
-    // fn update(pool: &Pool, id: i32, new_text: &str) -> Result<Self> {
-    //     use crate::schema::comments::dsl::{comments, text};
-    //
-    //     let conn = pool.get()?;
-    //     let updated = diesel::update(comments.find(id))
-    //         .set(text.eq(new_text))
-    //         .get_result(&conn)?;
-    //     Ok(updated)
+    // async fn update(pool: &PgPool, slug: &str, new_text: &str) -> Result<Self> {
+    //     let res = sqlx::query_as!(
+    //         Comment,
+    //         r#"
+    //         update comments
+    //         set text = $1 where slug = $2
+    //         "#,
+    //         new_text,
+    //         slug
+    //     )
+    //     .execute(pool)
+    //     .await?;
+    //     Ok(res)
     // }
 }
 
 #[get("/{slug}")]
-async fn get_comments_by_slug(
-    pool: web::Data<PgPool>, /*slug: web::Path<String>*/
-) -> impl Responder {
-    Comment::fetch_all(&pool)
+async fn get_comments_by_slug(pool: web::Data<PgPool>, slug: web::Path<String>) -> impl Responder {
+    Comment::fetch_slug(&pool, &slug)
         .await
         .map(|comment| HttpResponse::Ok().json(comment))
         .map_err(|_| HttpResponse::InternalServerError().finish())
@@ -172,7 +175,7 @@ async fn get_comments_by_slug(
 struct CommentReq {
     pub name: String,
     pub text: String,
-    pub email: String,
+    pub email: Option<String>,
     pub parent: Option<i32>,
 }
 
@@ -191,33 +194,21 @@ async fn post_comment(
     };
 
     comment.validate().map_err(|e| {
-        HttpResponse::BadRequest().body(format!(
-            "{:?}",
-            e.into_errors().into_values().collect::<Vec<_>>()
-        ))
+        error!("{}", e);
+        HttpResponse::BadRequest().finish()
     })?;
 
     Comment::new(&pool, comment)
         .await
         .map(|comment| HttpResponse::Ok().json(comment))
-        .map_err(|_| HttpResponse::InternalServerError().finish())
+        .map_err(|_| HttpResponse::InternalServerError())
 }
 
 /// Actix configuration for comments.
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    let store = MemoryStore::new();
-
     cfg.service(
         web::scope("comments")
             .service(get_comments_by_slug)
-        // .service(
-        //     web::scope("")
-        //         .wrap(
-        //             RateLimiter::new(MemoryStoreActor::from(store.clone()).start())
-        //                 .with_interval(Duration::from_secs(120))
-        //                 .with_max_requests(5),
-        //         )
-        //         .service(post_comment),
-        // ),
+            .service(post_comment),
     );
 }

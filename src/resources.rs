@@ -1,5 +1,5 @@
-pub mod comment;
+mod comment;
 mod reaction;
 
 pub use comment::configure as comment_conf;
-//pub use reaction::Reaction;
+pub use reaction::configure as reaction_conf;
