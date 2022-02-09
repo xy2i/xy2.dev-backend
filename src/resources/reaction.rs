@@ -1,14 +1,8 @@
 //! A reaction to a post.
-use actix_http::Response;
-use actix_service::ServiceFactory;
-use actix_web::dev::HttpServiceFactory;
-use actix_web::error::BlockingError;
-use actix_web::{get, web, Error, HttpResponse, Responder, Scope};
+use actix_web::{get, web, HttpResponse, Responder};
 use anyhow::Result;
-use log::error;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::PgPool;
-use std::time::Duration;
 
 /// A reaction to a post, characterized by the slug.
 #[derive(Debug, Serialize)]

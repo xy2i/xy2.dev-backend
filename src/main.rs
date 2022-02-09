@@ -7,7 +7,6 @@ use crate::resources::{comment_conf, reaction_conf};
 use actix_cors::Cors;
 use actix_web::middleware::{Logger, NormalizePath, TrailingSlash};
 use actix_web::{web, App, HttpServer};
-use env_logger::Env;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use actix_web::{get, post, web, HttpResponse, Responder};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -63,22 +63,19 @@ impl JsonComment {
     }
 
     fn add_child(node: &Arc<JsonComment>, child: &Arc<JsonComment>) {
-        node.children.lock().unwrap().push(Arc::clone(&child));
+        node.children.lock().unwrap().push(Arc::clone(child));
     }
 
     /// Create a tree of comments from a vector.
     fn make_tree(comments: Vec<Comment>) -> JsonCommentTree {
         let parents: Vec<Option<i32>> = comments.iter().map(|c| c.parent).collect();
-        let nodes: Vec<Arc<JsonComment>> = comments
-            .into_iter()
-            .map(|c| Arc::new(JsonComment::new(c)))
-            .collect();
+        let nodes = comments.into_iter().map(|c| Arc::new(JsonComment::new(c)));
 
         let mut id_to_node = HashMap::new();
 
         let mut root_nodes_ids = vec![];
 
-        for (i, node) in nodes.into_iter().enumerate() {
+        for (i, node) in nodes.enumerate() {
             let id = node.id;
             id_to_node.insert(id, node);
 
@@ -124,13 +121,13 @@ impl Comment {
         })?;
         Ok(res)
     }
-
-    async fn fetch_all(pool: &PgPool) -> Result<Vec<Comment>> {
-        let res = sqlx::query_as!(Comment, "select * from comments")
-            .fetch_all(pool)
-            .await?;
-        Ok(res)
-    }
+    //
+    // async fn fetch_all(pool: &PgPool) -> Result<Vec<Comment>> {
+    //     let res = sqlx::query_as!(Comment, "select * from comments")
+    //         .fetch_all(pool)
+    //         .await?;
+    //     Ok(res)
+    // }
 
     async fn fetch_slug(pool: &PgPool, slug: &str) -> Result<JsonCommentTree> {
         let res = sqlx::query_as!(
