@@ -1,5 +1,5 @@
 //! A reaction to a post.
-use actix_web::{get, web, HttpResponse, Responder};
+use actix_web::{error, get, web, HttpResponse, Responder};
 use anyhow::Result;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -43,10 +43,13 @@ impl Reaction {
 }
 
 #[get("/{slug}")]
-async fn get_reaction(pool: web::Data<PgPool>, slug: web::Path<String>) -> impl Responder {
+async fn get_reaction(
+    pool: web::Data<PgPool>,
+    slug: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
     Reaction::fetch_slug(&pool, &slug)
         .await
-        .map_err(|_| HttpResponse::InternalServerError().finish())
+        .map_err(|_| error::ErrorInternalServerError(""))
         .map(|reaction| {
             reaction.map_or_else(
                 || HttpResponse::BadRequest().finish(),
@@ -56,11 +59,14 @@ async fn get_reaction(pool: web::Data<PgPool>, slug: web::Path<String>) -> impl 
 }
 
 #[get("/{slug}/upvote")]
-async fn upvote_post(pool: web::Data<PgPool>, slug: web::Path<String>) -> impl Responder {
+async fn upvote_post(
+    pool: web::Data<PgPool>,
+    slug: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
     Reaction::upvote_post(&pool, &slug)
         .await
         .map(|v| HttpResponse::Ok().json(v))
-        .map_err(|_| HttpResponse::InternalServerError())
+        .map_err(|_| error::ErrorInternalServerError(""))
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
