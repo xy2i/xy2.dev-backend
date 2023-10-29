@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{error, get, post, web, HttpResponse, Responder};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use log::error;
@@ -160,11 +160,14 @@ impl Comment {
 }
 
 #[get("/{slug}")]
-async fn get_comments_by_slug(pool: web::Data<PgPool>, slug: web::Path<String>) -> impl Responder {
+async fn get_comments_by_slug(
+    pool: web::Data<PgPool>,
+    slug: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
     Comment::fetch_slug(&pool, &slug)
         .await
         .map(|comment| HttpResponse::Ok().json(comment))
-        .map_err(|_| HttpResponse::InternalServerError().finish())
+        .map_err(|_| error::ErrorInternalServerError(""))
 }
 
 /// A request to create a comment.
@@ -181,7 +184,7 @@ async fn post_comment(
     pool: web::Data<PgPool>,
     slug: web::Path<String>,
     web::Json(comment_req): web::Json<CommentReq>,
-) -> impl Responder {
+) -> actix_web::Result<impl Responder> {
     let comment = NewComment {
         slug: slug.into_inner(),
         name: comment_req.name,
@@ -192,13 +195,13 @@ async fn post_comment(
 
     comment.validate().map_err(|e| {
         error!("{}", e);
-        HttpResponse::BadRequest().finish()
+        error::ErrorBadRequest("")
     })?;
 
     Comment::new(&pool, comment)
         .await
         .map(|comment| HttpResponse::Ok().json(comment))
-        .map_err(|_| HttpResponse::InternalServerError())
+        .map_err(|_| error::ErrorInternalServerError(""))
 }
 
 /// Actix configuration for comments.
